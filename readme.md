@@ -13,8 +13,6 @@ This project aims to present a solution for the migration of the Notejam project
 
 This migration handles the Nodejs version of the application.
 
-### Assumptions
-
 ## Current Architecture
 
 ![Current Architecture](diagrams/current-architecture.png)
