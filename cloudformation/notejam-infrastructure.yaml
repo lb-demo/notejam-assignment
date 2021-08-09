@@ -1,0 +1,774 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: 'Nordcloud Notejam assignment'
+Parameters:
+  Branch:
+    Type: String
+    Description: "The branch you want to automatically deploy, this usually would be your deployment branch"
+    Default: "master"
+  RepoOwner:
+    Type: String
+    Description: "The owner of the repository (github username in this case)"
+    Default: "lb-demo"
+  Repository:
+    Type: String
+    Description: "The name of your repository"
+    Default: "notejam"
+  GithubOAuthToken:
+    Type: String
+    Description: "Github access token"
+  WebServerCapacity:
+    Default: '2'
+    Description: "The maximum number of instances in the Auto Scaling Group(min 2 (for HA) - max 10)"
+    Type: Number
+    MinValue: '2'
+    MaxValue: '10'
+    ConstraintDescription: "a number between 2 and 10"
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.micro, t2.small, t2.medium, t2.large]
+    ConstraintDescription: a t2 family instance like t2.micro, t2.small, t2.medium, t2.large. Note that this CloudFormation template supports only regions eu-central-1 and us-east-1
+  KeyName:
+    Description: EC2 Key Pair used for logging into the instances
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: an existing EC2 key pair name
+  SSHLocation:
+    Description: IP address range that is allowd to SSH into the EC2 instances
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    Default: 0.0.0.0/0
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: a valid IP CIDR range (x.x.x.x/x)
+Mappings:
+  AWSInstanceType2Arch:
+    t2.micro:
+      Arch: HVM64
+    t2.small:
+      Arch: HVM64
+    t2.medium:
+      Arch: HVM64
+    t2.large:
+      Arch: HVM64
+  AWSInstanceType2NATArch:
+    t2.micro:
+      Arch: NATHVM64
+    t2.small:
+      Arch: NATHVM64
+    t2.medium:
+      Arch: NATHVM64
+    t2.large:
+      Arch: NATHVM64
+  AWSRegionArch2AMI:
+    ##North America
+    us-east-1:
+      HVM64: ami-0c2b8ca1dad447f8a
+    us-east-2:
+      HVM64: ami-0443305dabd4be2bc
+    us-west-1:
+      HVM64: ami-04b6c97b14c54de18
+    us-west-2:
+      HVM64: ami-083ac7c7ecf9bb9b0
+    ca-central-1:
+      HVM64: ami-02f84cf47c23f1769
+    ##Europe
+    eu-central-1:
+      HVM64: ami-0453cb7b5f2b7fca2
+    eu-west-1:
+      HVM64: ami-02b4e72b17337d6c1
+    eu-west-2:
+      HVM64: ami-0d26eb3972b7f8c96
+    eu-west-3:
+      HVM64: ami-0d49cec198762b78c
+    eu-north-1:
+      HVM64: ami-0d441f5643da997cb
+    eu-south-1:
+      HVM64: ami-0fce326033a239d55
+Resources:
+
+  ##########################
+  ## VPC CREATION SECTION ##
+  ##########################
+
+  ## Creates VPC for the application to use
+
+  NotejamVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: 10.0.0.0/16
+
+  ## Creates an Internet Gateway and then attaches it to the VPC
+
+  NotejamInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref NotejamVPC
+      InternetGatewayId: !Ref NotejamInternetGateway
+
+  ## Creates a Public Route Table
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref NotejamVPC
+
+  RouteForInternetAccess:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref NotejamInternetGateway
+
+  ## Creates a Public Subnet and the necessary associations
+
+  PublicSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NotejamVPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: AWS::Region
+
+  PublicSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref NotejamVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs
+          Ref: AWS::Region
+
+  PublicSNRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSN1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSNRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSN2
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSNNetworkAclAssociation1:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSN1
+      NetworkAclId: !GetAtt
+        - NotejamVPC
+        - DefaultNetworkAcl
+
+  PublicSNNetworkAclAssociation2:
+    Type: AWS::EC2::SubnetNetworkAclAssociation
+    Properties:
+      SubnetId: !Ref PublicSN2
+      NetworkAclId: !GetAtt
+        - NotejamVPC
+        - DefaultNetworkAcl
+
+  ########################################
+  ## NOTEJAM APPLICATION INFRASTRUCTURE ##
+  ########################################
+
+  ## Creates the autoscaling group for the instances
+
+  NotejamServers:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref PublicSN1
+        - !Ref PublicSN2
+      LaunchConfigurationName: !Ref 'LaunchConfiguration'
+      MinSize: '2'
+      MaxSize: !Ref WebServerCapacity
+      TargetGroupARNs:
+        - !Ref NotejamDefaultTargetGroup
+      Tags:
+        - Key: "DeploymentGroup"
+          PropagateAtLaunch: True
+          Value: !Ref AWS::StackName
+        - Key: "Name"
+          PropagateAtLaunch: True
+          Value: "Notejam Instance"
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT10M
+        Count: 1
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 1
+        MaxBatchSize: 1
+        PauseTime: PT10M
+        WaitOnResourceSignals: true
+
+  ## Creates a LaunchConfiguration for the instances
+
+  LaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          ConfigureServer:
+            - "codeDeployAgentInstall"
+            - "getNodejs"
+            - "installNodeandPm2"
+            - "createEcosystemFile"
+        codeDeployAgentInstall:
+          packages:
+            yum:
+              ruby: [ ]
+          files:
+            /home/ec2-user/install:
+              source: !Join ["", ["https://aws-codedeploy-", !Ref 'AWS::Region', ".s3.amazonaws.com/latest/install"]]
+              mode: "000755"
+          commands:
+            00-install-agent:
+              command:  "./install auto"
+              cwd: "/home/ec2-user/"
+        getNodejs:
+          commands:
+            getnode:
+              command: "curl -sL https://rpm.nodesource.com/setup_lts.x | sudo bash -"
+              cwd: "/home/ec2-user"
+        installNodeandPm2:
+          packages:
+            yum:
+              nodejs: [ ]
+          commands:
+            installpm2:
+              command: "npm install pm2@latest -g"
+              cwd: "/home/ec2-user/"
+        createEcosystemFile:
+          files:
+            /usr/share/notejam/ecosystem.config.js:
+              content: |
+                module.exports = {
+                  apps : [{
+                    name: "npm",
+                    cwd: '/usr/share/notejam',
+                    script: "npm",
+                    args: 'start',
+                    watch: true,
+                    env: {
+                      NODE_ENV: "development",
+                      HOST: '0.0.0.0',
+                      PORT: '80',
+                    },
+                  }]
+                }
+    Properties:
+      KeyName: !Ref 'KeyName'
+      ImageId: !FindInMap [ AWSRegionArch2AMI, !Ref 'AWS::Region', !FindInMap [ AWSInstanceType2Arch,
+                                                                                !Ref 'InstanceType', Arch ] ]
+      SecurityGroups: [ !Ref 'NotejamInstanceSG' ]
+      InstanceType: !Ref 'InstanceType'
+      IamInstanceProfile: !Ref NotejamInstanceProfile
+      UserData: !Base64
+        Fn::Join:
+          - ''
+          - [ '#!/bin/bash -xe
+
+        ', 'yum update -y aws-cfn-bootstrap
+
+        ', '/opt/aws/bin/cfn-init -v ', '         --stack ', !Ref 'AWS::StackName',
+              '         --resource LaunchConfiguration --configsets ConfigureServer ', '         --region ', !Ref 'AWS::Region','
+
+        ', '/opt/aws/bin/cfn-signal -e $? ', '         --stack ', !Ref 'AWS::StackName',
+              '         --resource NotejamServers ', '         --region ', !Ref 'AWS::Region','
+
+        ', 'crontab -l | { cat; echo "@reboot sudo pm2 start /usr/share/notejam/ecosystem.config.js -i 0 --name \"notejam\""; } | crontab -','
+
+        ','pm2 start /usr/share/notejam/ecosystem.config.js -i 0 --name "notejam"',
+              '
+        ' ]
+
+  ## Creates a ScalingPolicy for scaling out
+
+  WebServerScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref NotejamServers
+      Cooldown: '60'
+      ScalingAdjustment: 1
+
+  ## Creates a ScalingPolicy for scaling in
+
+  WebServerScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref NotejamServers
+      Cooldown: '60'
+      ScalingAdjustment: -1
+
+  ## Creates a CloudWatch Alarm for scaling purposes (alarms when CPU usage is above 50 %)
+
+  CPUAlarmHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Scale-up if CPU > 50% for 4 minutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 120
+      EvaluationPeriods: 2
+      Threshold: 50
+      AlarmActions: [ !Ref 'WebServerScaleUpPolicy' ]
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: "NotejamServers"
+      ComparisonOperator: GreaterThanThreshold
+
+  ## Creates a CloudWatch Alarm for scaling purposes (alarms when CPU usage is below 50 %)
+
+  CPUAlarmLow:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Scale-down if CPU < 50% for 10 minutes
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 50
+      AlarmActions: [ !Ref 'WebServerScaleDownPolicy' ]
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: "NotejamServers"
+      ComparisonOperator: LessThanThreshold
+
+  ## Creates an Application Load Balancer for the Notejam application
+
+  NotejamElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - !Ref PublicSN1
+        - !Ref PublicSN2
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref NotejamInstanceSG
+
+  ## Creates a Listener for the Application Load Balancer
+
+  NotejamLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref NotejamElasticLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref NotejamDefaultTargetGroup
+
+  ## Creates a TargetGroup for the Application load balancer
+
+  NotejamDefaultTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref NotejamVPC
+      Port: 80
+      Protocol: HTTP
+      HealthCheckEnabled: True
+      HealthCheckIntervalSeconds: 15
+      HealthCheckPath: "/signup"
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+
+  ## Creates a SecurityGroup for the instances
+
+  NotejamInstanceSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access only from set location and HTTP access only from the load balancer
+      VpcId: !Ref NotejamVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref 'SSHLocation'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ## Creates an instance role for use with EC2 instances (needed for CodeDeploy later)
+
+  NotejamInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+
+  ## Creates a Policy to be used with the Role
+
+  NotejamRolePolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: root
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action: "s3:*"
+            Resource: "*"
+      Roles:
+        - !Ref NotejamInstanceRole
+
+  ## Creates an InstanceProfile to be used with the Role
+
+  NotejamInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref NotejamInstanceRole
+
+  ####################################
+  ##   AURORA DATABASE CREATION     ##
+  ####################################
+
+  ## Create Aurora Security group allowing access only from the web tier (notejam web security group)
+
+  NotejamAuroraSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref NotejamVPC
+      GroupDescription: "Ingress control for RDS instance"
+      SecurityGroupIngress:
+        - Description: 'Allow SSH IPv4 IN'
+          IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          SourceSecurityGroupId: !Ref NotejamInstanceSG
+
+  ## Create DBSubnetGroup for Aurora
+
+  NotejamDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: A4L rds subnet group
+      SubnetIds:
+        - !Ref PublicSN1
+        - !Ref PublicSN2
+
+  ## Create Aurora DBCluster with parameters (dbname,user,password) taken from the SSM Parameter Store
+
+  NotejamDBCluster:
+    Type: "AWS::RDS::DBCluster"
+    DeletionPolicy: Delete
+    Properties:
+      DBSubnetGroupName: !Ref NotejamDBSubnetGroup
+      DatabaseName: "{{resolve:ssm:/Notejam/Database/DBName:1}}"
+      Engine: aurora
+      BackupRetentionPeriod: 14
+      EngineVersion: "5.6.10a"
+      MasterUserPassword: "{{resolve:ssm-secure:/Notejam/Database/DBPassword:1}}"
+      MasterUsername: "{{resolve:ssm:/Notejam/Database/DBUser:1}}"
+      Tags:
+        - Key: Name
+          Value: "Notejam-Aurora-Cluster"
+      VpcSecurityGroupIds:
+        - !Ref NotejamAuroraSecurityGroup
+
+  ## Create first Aurora instance - we create two instances for HA
+
+  NotejamAuroraInstance1:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      DBClusterIdentifier: !Ref NotejamDBCluster
+      DBInstanceClass: db.t3.small
+      DBSubnetGroupName: !Ref NotejamDBSubnetGroup
+      Engine: aurora
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ 'Notejam / ', !Ref 'AWS::StackName' ] ]
+
+  ## Create second Aurora instance - we create two instances for HA
+
+  NotejamAuroraInstance2:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    Properties:
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: true
+      DBClusterIdentifier: !Ref NotejamDBCluster
+      DBInstanceClass: db.t3.small
+      DBSubnetGroupName: !Ref NotejamDBSubnetGroup
+      Engine: aurora
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ 'Notejam / ', !Ref 'AWS::StackName' ] ]
+
+
+
+  ####################################
+  ##   DEPLOYMENT PIPELINE CREATION ##
+  ####################################
+
+  ## Creates a CodePipeline for the application
+
+  GitHubToInstancePipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      RoleArn: !GetAtt CodePipeLineRole.Arn
+      ArtifactStore:
+        Location: !Ref PipelineBucket
+        Type: S3
+      Stages:
+        -
+          Name: Source
+          Actions:
+            -
+              Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: 1
+              OutputArtifacts:
+                -
+                  Name: TheApp
+              Configuration:
+                Owner: !Ref RepoOwner
+                Repo: !Ref Repository
+                Branch: !Ref Branch
+                OAuthToken: !Ref GithubOAuthToken
+        -
+          Name: Build
+          Actions:
+            -
+              Name: BuildAction
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts:
+                -
+                  Name: TheApp
+              OutputArtifacts:
+                -
+                  Name: TheBuiltApp
+              Configuration:
+                ProjectName: !Ref CodeBuild
+        -
+          Name: Deploy
+          Actions:
+            -
+              Name: DeployAction
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CodeDeploy
+              InputArtifacts:
+                -
+                  Name: TheBuiltApp
+              RunOrder: 1
+              Configuration:
+                ApplicationName: !Ref Application
+                DeploymentGroupName: !Ref DeploymentGroup
+
+  ## Creates a CodeDeploy Application
+
+  Application:
+    Type: "AWS::CodeDeploy::Application"
+    Properties:
+      ComputePlatform: Server
+
+  ## Creates a CodeDeploy Deployment Group
+
+  DeploymentGroup:
+    Type: "AWS::CodeDeploy::DeploymentGroup"
+    DependsOn: "NotejamServers"
+    Properties:
+      ApplicationName: !Ref Application
+      Ec2TagFilters:
+        - Key: DeploymentGroup
+          Type: KEY_AND_VALUE
+          Value: !Ref AWS::StackName
+      LoadBalancerInfo:
+        TargetGroupInfoList:
+          - Name: !GetAtt [ "NotejamDefaultTargetGroup", TargetGroupName]
+      ServiceRoleArn: !Sub '${CodeDeployRole.Arn}'
+
+  ## Creates a CodeBuild Project
+
+  CodeBuild:
+    Type: 'AWS::CodeBuild::Project'
+    Properties:
+      Name: !Sub ${AWS::StackName}-CodeBuild
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+        Name: MyProject
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Type: LINUX_CONTAINER
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:2.0"
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: !Sub |
+          version: 0.2
+          phases:
+            build:
+              commands:
+                - echo Actually run the build process
+                - cd express/notejam && npm install
+          artifacts:
+            files:
+              - '**/*'
+            base-directory: express/notejam
+
+
+  ## Creates a Role for CodeDeploy
+
+  CodeDeployRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'codedeploy.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      Path: '/'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole'
+
+  ## Creates a Role for CodeBuild
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /service-role/
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                  - "s3:PutObjectVersionAcl"
+                  - "s3:DeleteObject"
+                Resource:
+                  - !GetAtt PipelineBucket.Arn
+                  - !Join ['', [!GetAtt PipelineBucket.Arn, "/*"]]
+              -
+                Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "cloudfront:CreateInvalidation"
+                Resource:
+                  - "*"
+
+  ## Creates a Role for CodePipeline
+
+  CodePipeLineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              -
+                Effect: Allow
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                  - "s3:PutObjectVersionAcl"
+                  - "s3:DeleteObject"
+                Resource:
+                  - !GetAtt PipelineBucket.Arn
+                  - !Join ['', [!GetAtt PipelineBucket.Arn, "/*"]]
+              -
+                Effect: Allow
+                Action:
+                  - "codebuild:BatchGetBuilds"
+                  - "codebuild:StartBuild"
+                Resource: "*"
+              -
+                Effect: Allow
+                Action:
+                  - "codedeploy:CreateDeployment"
+                  - "codedeploy:GetApplicationRevision"
+                  - "codedeploy:GetApplication"
+                  - "codedeploy:GetDeployment"
+                  - "codedeploy:GetDeploymentConfig"
+                  - "codedeploy:RegisterApplicationRevision"
+                Resource: "*"
+
+  ## Creates an S3 bucket for holding pipeline artifacts
+
+  PipelineBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties: {}
+    DeletionPolicy: Retain
+Outputs:
+  URL:
+    Description: Notejam website URL
+    Value: !Join ['', ['http://', !GetAtt [ "NotejamElasticLoadBalancer", DNSName]]]
