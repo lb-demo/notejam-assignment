@@ -44,9 +44,9 @@ The proposed architecture leverages the AWS cloud to offer a highly available, e
 - Security groups will allow access only from group above and on specific ports only 
 - Implement an Auto Scaling Group for handling the load to the servers with CPU alarms for high usage. This will trigger automatic scaling of the application.
 - Implement an Application Load Balancer with a HTTP listener (HTTPS strongly advised) and a Target Group to route the traffic to
-- Replace SQLite with AWS RDS (Aurora) with failover nodes in two distinct availability zones
+- Replace SQLite with AWS RDS (Aurora) with a failover node in another availability zone
 - Use IAM Roles for controlling permissions for specific service to service communication
-- Different environments (development, testing, production) will use different AWS account to enforce separation of concerns and security.
+- Different environments (development, testing, production) will use different AWS accounts to enforce separation of concerns and security.
 - For sensitive data like passwords, usernames and db hosts we will use the SSM Parameter Store
 
 ### Deployment pipeline diagram
@@ -123,7 +123,8 @@ CloudWatch logs will be used for monitoring the infrastructure. The CloudWatch A
 - While DB backups are enabled and stored for 14 days they are not automatically migrated to S3 - this still needs to be implemented
 - Add parameter to the CloudFormation template for specifying the environment type (development, testing, production)
 - test scaling
-- provide options in the CloudFormation template parameters to manually specifiy Auto Scaling Group minimum and start sizes 
+- provide options in the CloudFormation template parameters to manually specifiy Auto Scaling Group minimum and start sizes
+- implement CloudWatch logging for all resources. Also automatically install the CloudWatch agent on instances and collect nodejs application logs.
 
 ### Further steps suggested
 
@@ -136,8 +137,10 @@ The demo of the whole architecture can be deployed via the provided [CloudFormat
 
 ### Demo prerequisites
 
+<span style="color:salmon">
 **NOTE!!**
 The CloudFormation template has AMI mappings only for the European and North American regions. So it cannot be deployed in regions outside of these two continents.
+</span>
 
 The forked Notejam repo referenced below contains some additional files needed for CodeDeploy in the deployment pipeline, an appspec.yaml file and a directory named codedeploy with several files in it.
 
@@ -146,6 +149,11 @@ To run the provided CloudFormation template you need to
 1. Fork the repository [https://github.com/lb-demo/notejam](https://github.com/lb-demo/notejam)
 2. Create a personal Github access token (or ask one). Go to [Github settings -> Developer settings -> Personal access tokens](https://github.com/settings/tokens) and create your token by giving it a name and checking the "repo" checkbox.
 3. Go to the EC2 console (Key Pairs) and create a key pair
+4. Go to SSM Parameter Store and create the following parameters for the RDS database:
+    - **/Notejam/Database/DBName** - this will be the inital database name of the RDS DB Cluster 
+    - **/Notejam/Database/DBPassword** - this will be the password for the database
+    - **/Notejam/Database/DBUser** - this will be the database user for the database 
+    
 
 Then go to the CloudFormation console and launch a new stack. After uploading the template you will be asked some details (need to fill in parameters)
 
