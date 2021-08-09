@@ -30,7 +30,9 @@ This migration handles the Nodejs version of the application.
 
 ## Proposed Architecture
 
-The proposed architecture leverages the AWS cloud to offer a highly available, elastic and secure solution for the needs of the customer. 
+The proposed architecture leverages the AWS cloud to offer a highly available, elastic and secure solution for the needs of the customer.
+Whenever possible we have chosen AWS services to implement the required functionality. 
+
 
 ### Architecture diagram
 
@@ -38,6 +40,7 @@ The proposed architecture leverages the AWS cloud to offer a highly available, e
 
 ### Architectural decisions
 
+- We will use CloudFormation as the tool for deploying the resulting infrastructure to AWS
 - Implement a custom VPC in AWS just for the Notejam application
 - The VPC will have two private and two public subnets
 - Implement distinct security groups for each tier of the architecture
@@ -67,6 +70,7 @@ During this process CodeDeploy will execute some scripts associated to hooks in 
 
 ### Services used
 
+- AWS CloudFormation - to deploy the whole architecture
 - AWS EC2 (Instances, Auto Scaling Group, Application Load Balancer)
 - AWS VPC (VPC, Subnets, IGW, Routes)
 - AWS RDS (Aurora)
@@ -76,7 +80,7 @@ During this process CodeDeploy will execute some scripts associated to hooks in 
 - AWS CodeDeploy
 - IAM (IAM Roles for EC2, CodePipeline, CodeBuild, CodeDeploy)
 - SSM Parameter Store (for storing secrets - db credentials)
-- Github repo
+- GitHub for the code repository
 
 ### Satisfaction of Business requirements
 
