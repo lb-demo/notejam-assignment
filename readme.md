@@ -119,7 +119,7 @@ CloudWatch logs will be used for monitoring the infrastructure. The CloudWatch A
 
 ### What still needs to be done (@todo)
 
-- ~~Separation of the database in the Notejam codebase was not done yet. Still need to connect the application to the deployed RDS Aurora Cluster.~~ **DONE** (10 August 2021)
+- ~~Separation of the database in the Notejam codebase was not done yet. Still need to connect the application to the deployed RDS Aurora Cluster.~~ **DONE** (10 August 2021) - modifications also performed on the forked repo with Notejam codebase  
 - Private subnets are not yet implemented, for the moment everything is in public subnets. This is partially due to time constraints but also cost constraints (for HA we need two NAT gateways).
 - Security group chaining to be implemented and tested
 - provide option in CloudFormation parameters for manually specifying VPC CIDR ranges 
