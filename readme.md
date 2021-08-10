@@ -119,7 +119,7 @@ CloudWatch logs will be used for monitoring the infrastructure. The CloudWatch A
 
 ### What still needs to be done (@todo)
 
-- Separation of the database in the Notejam codebase was not done yet. Still need to connect the application to the deployed RDS Aurora Cluster.
+- ~~Separation of the database in the Notejam codebase was not done yet. Still need to connect the application to the deployed RDS Aurora Cluster.~~ **DONE** (10 August 2021)
 - Private subnets are not yet implemented, for the moment everything is in public subnets. This is partially due to time constraints but also cost constraints (for HA we need two NAT gateways).
 - Security group chaining to be implemented and tested
 - provide option in CloudFormation parameters for manually specifying VPC CIDR ranges 
@@ -141,10 +141,12 @@ The demo of the whole architecture can be deployed via the provided [CloudFormat
 
 ### Demo prerequisites
 
-<span style="color:salmon">
-**NOTE!!**
-The CloudFormation template has AMI mappings only for the European and North American regions. So it cannot be deployed in regions outside of these two continents.
-</span>
+----------
+**NOTE!!
+1. The CloudFormation template has AMI mappings only for the European and North American regions. So it cannot be deployed in regions outside of these two continents.
+2. The CloudFormation template only supports the t2 instance family at the moment. So the stack cannot be deployed to instances where t2 is not supported (Milan for example).
+3. The deployment of the stack was tested in regions eu-central-1 (Frankfurt) and eu-west-2 (London)**
+----------
 
 The forked Notejam repo referenced below contains some additional files needed for CodeDeploy in the deployment pipeline, an appspec.yaml file and a directory named codedeploy with several files in it.
 

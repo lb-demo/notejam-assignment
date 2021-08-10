@@ -28,7 +28,7 @@ Parameters:
     Type: String
     Default: t2.micro
     AllowedValues: [t2.micro, t2.small, t2.medium, t2.large]
-    ConstraintDescription: a t2 family instance like t2.micro, t2.small, t2.medium, t2.large. Note that this CloudFormation template supports only regions eu-central-1 and us-east-1
+    ConstraintDescription: a t2 family instance like t2.micro, t2.small, t2.medium, t2.large. Note that this CloudFormation template supports only regions in Europe and North America
   KeyName:
     Description: EC2 Key Pair used for logging into the instances
     Type: AWS::EC2::KeyPair::KeyName
@@ -186,6 +186,7 @@ Resources:
 
   NotejamServers:
     Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: NotejamAuroraInstance1
     Properties:
       VPCZoneIdentifier:
         - !Ref PublicSN1
@@ -225,6 +226,7 @@ Resources:
             - "getNodejs"
             - "installNodeandPm2"
             - "createEcosystemFile"
+            - "createEndpointFile"
         codeDeployAgentInstall:
           packages:
             yum:
@@ -268,6 +270,10 @@ Resources:
                     },
                   }]
                 }
+        createEndpointFile:
+          files:
+            /home/ec2-user/endpoint.txt:
+              content: !GetAtt NotejamDBCluster.Endpoint.Address
     Properties:
       KeyName: !Ref 'KeyName'
       ImageId: !FindInMap [ AWSRegionArch2AMI, !Ref 'AWS::Region', !FindInMap [ AWSInstanceType2Arch,
@@ -391,6 +397,9 @@ Resources:
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        - Key: stickiness.enabled
+          Value: true
 
   ## Creates a SecurityGroup for the instances
 
@@ -437,6 +446,9 @@ Resources:
           - Effect: Allow
             Action: "s3:*"
             Resource: "*"
+          - Effect: Allow
+            Action: "ssm:GetParameter"
+            Resource: "arn:aws:ssm:*:*:*"
       Roles:
         - !Ref NotejamInstanceRole
 
@@ -461,7 +473,7 @@ Resources:
       VpcId: !Ref NotejamVPC
       GroupDescription: "Ingress control for RDS instance"
       SecurityGroupIngress:
-        - Description: 'Allow SSH IPv4 IN'
+        - Description: 'Allow ingress for the Notejam application'
           IpProtocol: tcp
           FromPort: '3306'
           ToPort: '3306'
@@ -487,7 +499,6 @@ Resources:
       DatabaseName: "{{resolve:ssm:/Notejam/Database/DBName:1}}"
       Engine: aurora
       BackupRetentionPeriod: 14
-      EngineVersion: "5.6.10a"
       MasterUserPassword: "{{resolve:ssm-secure:/Notejam/Database/DBPassword:1}}"
       MasterUsername: "{{resolve:ssm:/Notejam/Database/DBUser:1}}"
       Tags:
